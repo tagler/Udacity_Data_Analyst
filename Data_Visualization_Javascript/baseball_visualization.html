@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+
+<html>
+
+	<head>
+
+		<meta charset="utf-8">
+
+		<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+		<b>Major League Baseball (MLB) Team:</b>&nbsp;
+
+		<select id="teams" name="teams" onchange="updateData();">
+			<option value ="ARI">Arizona Diamondbacks</option>
+			<option value ="ATL">Atlanta Braves</option>
+			<option value ="BAL">Baltimore Orioles</option>
+			<option value ="BOS">Boston Red Sox</option>
+			<option value ="CHC">Chicago Cubs</option>
+			<option value ="CHW">Chicago White Sox</option>
+			<option value ="CIN">Cincinnati Reds</option>
+			<option value ="CLE">Cleveland Indians</option>
+			<option value ="COL">Colorado Rockies</option>
+			<option value ="DET">Detroit Tigers</option>
+			<option value ="FLA">Florida Marlins</option>
+			<option value ="HOU">Houston Astros</option>
+			<option value ="KCR">Kansas City Royal</option>
+			<option value ="ANA">Los Angeles Angels of Anaheim</option>
+			<option value ="LAD">Los Angeles Dodgers</option>
+			<option value ="MIL">Milwaukee Brewers</option> 
+			<option value ="MIN">Minnesota Twins</option>
+			<option value ="NYM">New York Mets</option>
+			<option value ="NYY" selected>New York Yankees</option>
+			<option value ="OAK">Oakland Athletics</option>
+			<option value ="PHI">Philadelphia Phillies</option>
+			<option value ="PIT">Pittsburgh Pirates</option> 
+			<option value ="SDP">San Diego Padres</option>
+			<option value ="SFG">San Francisco Giants</option>
+			<option value ="SEA">Seattle Mariners</option> 
+			<option value ="STL">St. Louis Cardinals</option>
+			<option value ="TBD">Tampa Bay Rays</option>
+			<option value ="TEX">Texas Rangers</option>
+			<option value ="TOR">Toronto Blue Jays</option>
+			<option value ="WSN">Washington Nationals</option>
+		</select> 
+
+		<script src="/js/d3.v3.min.js" charset="utf-8"></script>
+		<script src="/js/dimple.v2.0.0.min.js"></script>
+		<script src="/js/spin.js"></script>
+		<script> var science = { stats: {} };</script>
+		<script src="/js/loess.js" charset="utf-8"></script>
+
+		<style>
+			.spinner {
+				position: fixed;
+				top: 45%;
+				left: 50%;
+			}
+		</style>
+
+		<script type="text/javascript">
+
+			// dimple chart objects, updatable global objects 
+			var myChart;
+
+			// draw function for team plot
+			function draw(data) {
+
+				// svg setup code for figure size
+				"use strict";
+				var margin = 100,
+					width = 1400 - margin,
+					height = 720 - margin;
+				var svg = d3.select("body")
+					.append("svg")
+					.attr("width", width + margin)
+					.attr("height", height + margin)
+					.append('g')
+					.attr('class','chart');
+
+				// use dropdown menu select and filter data by team name
+				var dropdown = d3.select("#teams");
+				var source = dropdown.node()
+								.options[dropdown.node().selectedIndex]
+								.value;
+				var data_2 = dimple.filterData(data,"franchID",source);
+
+				// construct chart and axes using dimple.js 
+				// x-axis - year data
+				myChart = new dimple.chart(svg);
+				var x = myChart.addTimeAxis("x", "yearID"); 
+				x.dateParseFormat = "%Y";
+				x.tickFormat = "%Y";
+				x.timeInterval = 5; 
+				x.title = "Season/Year";
+				// y-axis - winning percentage/ratio data
+				var y = myChart.addMeasureAxis("y", "WinPercent"); 
+				y.tickFormat = ".3f";
+				y.overrideMin = 0.2;
+				y.overrideMax = 0.8;
+				y.title = "MLB Team Winning Percentage, (Wins)/(Wins+Losses)";
+
+				// add all data (unfiltered) series
+				var s1 = myChart.addSeries(["franchID","PostSeason",
+											"Other Teams"],
+											dimple.plot.bubble);
+				s1.data = data;
+
+				// add selected team win series
+				var s2 = myChart.addSeries(["franchID","Selected Team"],
+											dimple.plot.line)
+				s2.data = data_2;
+				s2.lineWeight = 3;
+
+				// add regression fit for win percent series data 
+				var x_fit = s2.data.map(function(a) {return a.yearID;});
+				var y_fit = s2.data.map(function(b) {return b.WinPercent;});
+				// loess fit 
+				var loess = science.stats.loess();
+				loess.bandwidth(0.25);
+				var yValuesSmoothed = loess(x_fit, y_fit);
+				// convert values to string and make clone of dataset to edit
+				yValuesSmoothed = yValuesSmoothed.map(String);
+				var data_fit = JSON.parse(JSON.stringify(data_2));
+				// copy regression fit values into cloned dataset
+				for (var i = 0; i < data_2.length; i++ ) { 
+					data_fit[i].WinPercent = yValuesSmoothed[i];
+					data_fit[i].franchID = "Regression Line";
+				};
+
+				// add regression fit series
+				var s3 = myChart.addSeries(["franchID"], dimple.plot.line);
+				s3.data = data_fit;
+				s3.lineWeight = 5;
+
+				// add post season series points
+				var s4 = myChart.addSeries(["franchID","PostSeason"],
+											dimple.plot.bubble);
+				s4.data = data_2;
+
+				// add plot title
+				var title = "MLB Team Winning Percentage and Post-Season " +
+							"Visualization (1901-Present)";
+				svg.append("text")
+					.attr("x", myChart._xPixels() + myChart._widthPixels() / 2)
+					.attr("y", myChart._yPixels() - 28)
+					.style("text-anchor", "middle")
+					.style("font-family", "sans-serif")
+					.style("font-weight", "bold")
+					.style("font-size","25px")
+					.text(title);
+
+				// add legend with post-season results only
+				var myLegend = myChart.addLegend(1275, 60, 200, 700, "left");
+				myLegend.series = [s4,s3,s2,s1]; 
+				// hide part of the legend that contains unnecessary labels 
+				var rec = svg.append("rect")
+					.attr("x", 1270)
+					.attr("y", 20)
+					.attr("height", 50)
+					.attr("width", 200)
+					.style("fill", "rgb(255,255,255)");
+
+				// add horizontal line at y = 0.5, wins = losses, "500" line
+				var myLine = svg.append("svg:line")
+					.attr("x1", 142)
+					.attr("y1", 360)
+					.attr("x2", 1265)
+					.attr("y2", 360)
+					.style("stroke", "rgb(0,0,0)");
+
+				// custom colors for points and lines
+				myChart.assignColor(source, "#D1D0CE","#D1D0CE", 0.1);
+				// color for selected team line
+				myChart.assignColor("Selected Team", "#4863A0","#4863A0", 1);
+				// color for regression line
+				myChart.assignColor("Regression Line","#cc0000","#cc0000", 0.7);
+				// color for data points and post-season results 
+				var wsc = "World Series Champion";
+				myChart.assignColor(wsc, "#2ecc71", "#254117", 1);
+				myChart.assignColor("League Champion", "#e67e22", "#AF5500", 1);
+				myChart.assignColor("Division Winner", "#f1c40f", "#AFAF00", 1);
+				myChart.assignColor("Wild Card Winner", "#9b59b6","#4B0082", 1);
+				myChart.assignColor("NA", "#3498db", "#000080", 1);
+				// color for background data points
+				myChart.assignColor("Other Teams", "#D1D0CE", "#D1D0CE", 0.15);
+
+				// plot charts
+				myChart.draw();
+
+				// stop loading animation 
+				spinner.stop();
+			};
+
+			// update data function when dropdown changes team names
+			function updateData() {
+
+				// extract data from myChart object 
+				var new_data = myChart.series[0].data
+
+				// update dropdown filter data
+				var dropdown = d3.select("#teams");
+				var source = dropdown.node()
+									.options[dropdown.node().selectedIndex]
+									.value;
+				var new_data_2 = dimple.filterData(new_data,"franchID",source);
+
+				// re-order data array by year
+				// needed to avoid error in regression fit function
+				function compare(a,b) {
+				if (a.yearID < b.yearID)
+					return -1;
+				else if (a.yearID > b.yearID)
+					return 1;
+				else 
+					return 0;
+				}
+				new_data_2.sort(compare);
+
+				// update regression fit for win percent series data 
+				var x_fit = new_data_2.map(function(a) {return a.yearID;});
+				var y_fit = new_data_2.map(function(b) {return b.WinPercent;});
+				// loess fit 
+				var loess = science.stats.loess();
+				loess.bandwidth(0.25);
+				var yValuesSmoothed = loess(x_fit, y_fit);
+				// convert values to string and make clone of dataset to edit
+				yValuesSmoothed = yValuesSmoothed.map(String);
+				var data_fit = JSON.parse(JSON.stringify(new_data_2));
+				// copy regression fit values into cloned dataset
+				for (var i = 0; i < new_data_2.length; i++ ) { 
+					data_fit[i].WinPercent = yValuesSmoothed[i];
+					data_fit[i].franchID = "Regression Line";
+				};
+
+				// update plot data with new team data
+				// update selected team data points 
+				myChart.series[1].data = new_data_2;
+				// update selected team line
+				myChart.series[3].data = new_data_2;
+				// update regression line
+				myChart.series[2].data = data_fit;
+
+				// update plot 
+				myChart.draw(1500);
+			}
+
+		</script>
+
+	</head>
+
+	<body>
+
+		<div id="spinner" class="spinner"></div>
+
+		<script type="text/javascript">
+
+			// display loading animation spin.js until plot is displayed 
+			var opts = {
+				lines: 12,
+				length: 15,
+				width: 10,
+				radius: 25,
+				corners: 1,
+				rotate: 0,
+				direction: 1,
+				color: '#000',
+				speed: 1,
+				trail: 60,
+				shadow: false,
+				hwaccel: false,
+				className: 'spinner',
+				zIndex: 2e9,
+				top: 'auto',
+				left: 'auto'
+			};
+			var target = document.getElementById('spinner')
+			var spinner = new Spinner(opts).spin(target);
+
+			// load data and call draw function
+			d3.tsv("/data/Teams_Edited.tsv", draw);
+
+		</script>
+
+	</body>
+
+</html>

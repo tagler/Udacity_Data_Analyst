@@ -1,0 +1,1047 @@
+---
+title: "Prosper - Exploratory Data Analysis"
+output:
+  html_document:
+    keep_md: yes
+---
+
+## Summary
+
+This project is a exploratory data analysis of the Prosper (peer-to-peer, P2P, lending) dataset. The goal of this analysis is to understand the relationship between the financial variables/features and create univariate, bivariate, multivariate plots. In particular, the following questions were investigated:
+
+1.) What financial variables/features are correlated with credit score?     
+2.) What financial variables/features are correlated with loan status?    
+3.) How has Prosper's lending changed from 2005 to 2014?     
+
+## Methods
+
+### Data
+
+https://www.google.com/url?q=https://s3.amazonaws.com/udacity-hosted-downloads/ud651/prosperLoanData.csv&sa=D&ust=1455413479145000&usg=AFQjCNHQpZD2tz00FVG6trQuyWr5tBzXnA
+
+### Hardware and Software Versions
+
+Software: R 3.2.3, RStudio 0.99.491     
+Operating System: Mac OS X 10.11.3      
+Hardware: Intel Core 2 Duo 2.4 GHz, 4 GB RAM      
+
+```{r}
+sessionInfo()
+```
+
+## Analysis
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.path='figures/',
+                      cache=TRUE,
+                      warning=FALSE,
+                      message=FALSE)
+```
+
+```{r}
+library(ggplot2)
+library(lubridate)
+library(gtools)
+library(gridExtra)
+library(GGally)
+library(dplyr)
+```
+
+```{r}
+# inport data
+raw_data <- read.csv("prosperLoanData.csv", header=TRUE,
+    na.strings=c("NA","","Not available","Not displayed",
+                 "Not employed","Other","$0") )
+```
+
+```{r}
+# make copy of data to transform/update
+data <- raw_data
+
+# transform into date/time ojects
+data$ListingCreationDate <- ymd_hms(as.character(data$ListingCreationDate))
+data$ClosedDate <- ymd_hms(as.character(data$ClosedDate))
+data$DateCreditPulled <- ymd_hms(as.character(data$DateCreditPulled))
+date_credit <- data$FirstRecordedCreditLine
+data$FirstRecordedCreditLine <- ymd_hms(as.character(date_credit))
+data$LoanOriginationDate <- ymd_hms(as.character(data$LoanOriginationDate))
+
+# convert to logical data
+data$IsBorrowerHomeowner <- as.logical((data$IsBorrowerHomeowner))
+data$CurrentlyInGroup <- as.logical((data$CurrentlyInGroup))
+data$IncomeVerifiable <- as.logical((data$IncomeVerifiable))
+
+# add credit score average column
+credit_mean <- (data$CreditScoreRangeLower + data$CreditScoreRangeUpper) / 2
+data$CreditScoreAverage <- credit_mean
+data$CreditScoreAverage[data$CreditScoreAverage < 100] <- NA
+
+# add credit history (years) column
+chistory <- (data$LoanOriginationDate - data$FirstRecordedCreditLine) / 365
+data$CreditHistory.Years <- as.numeric(chistory)
+
+# loan status into fewer groups
+data$LoanStatus <- as.character(data$LoanStatus)
+data$LoanStatus[ data$LoanStatus == "Past Due (>120 days)" ] <- "Late"
+data$LoanStatus[ data$LoanStatus == "Past Due (1-15 days)" ] <- "Late"
+data$LoanStatus[ data$LoanStatus == "Past Due (16-30 days)" ] <- "Late"
+data$LoanStatus[ data$LoanStatus == "Past Due (31-60 days)" ] <- "Late"
+data$LoanStatus[ data$LoanStatus == "Past Due (61-90 days)" ] <- "Late"
+data$LoanStatus[ data$LoanStatus == "Past Due (91-120 days)" ] <- "Late"
+data$LoanStatus[ data$LoanStatus == "FinalPaymentInProgress" ] <- "Completed"
+data$LoanStatus[ data$LoanStatus == "Chargedoff" ] <- "Defaulted"
+data$LoanStatus[ data$LoanStatus == "Cancelled" ] <- NA
+data$LoanStatus <- as.factor(data$LoanStatus)
+data = subset(data, !is.na(LoanStatus))
+
+# convert year/quarter columns
+data$LoanOriginationYearQuarter <- as.character(data$LoanOriginationDate)
+data$LoanOriginationYearQuarter <- quarter(data$LoanOriginationYearQuarter,
+                                           with_year = TRUE)
+data$Year <- as.factor( year(data$LoanOriginationDate) )
+
+# convert delinquencies into groups
+data$TotalDelinquencies <- data$CurrentDelinquencies +
+    data$DelinquenciesLast7Years
+data$TotalDelinquencies[ data$TotalDelinquencies == 1] <- 1
+data$TotalDelinquencies[ data$TotalDelinquencies == 2] <- 1
+data$TotalDelinquencies[ data$TotalDelinquencies == 3] <- 1
+data$TotalDelinquencies[ data$TotalDelinquencies > 3] <- 4
+data$TotalDelinquencies <- as.factor(data$TotalDelinquencies)
+levels(data$TotalDelinquencies) <- c('0', '1-3','4+')
+
+# make delinquencies True False column
+data$Delinquencies <- TRUE
+data$Delinquencies[ data$TotalDelinquencies == '0'] <- FALSE
+```
+
+### Preview Data
+
+```{r}
+dim(data)
+names(data)
+str(data)
+summary(data)
+sapply(data, function(x) sum(is.na(x)))
+```
+
+### Univariate Analysis
+
+Investigated the distribution of loan status and credit scores/ratings. These variables stood out as the most important.
+
+```{r univariate-figures-1}
+# loan status
+ggplot(data = data,
+       aes(x=LoanStatus)) +
+    theme_bw() +
+    geom_bar(fill = 'blue', color='black', alpha=0.6) +
+    ggtitle("Loan Status")
+
+# credit scores
+ggplot(data = data,
+       aes(x=CreditScoreAverage)) +
+    theme_bw() +
+    geom_histogram(fill = 'blue', color='black', alpha=0.6, binwidth = 20) +
+    geom_vline(xintercept = median(data$CreditScoreAverage, na.rm=TRUE),
+               color="red", linetype=2)  +
+    xlim(quantile(data$CreditScoreAverage,0.01, na.rm = TRUE),
+         quantile(data$CreditScoreAverage,0.99, na.rm = TRUE)) +
+    ggtitle("Credit Scores")
+
+# Propser credit ratings
+na.color <- c("blue","blue","blue","blue","blue","blue","blue","red")
+ggplot(data = data,
+       aes(x=ProsperRating..Alpha.)) +
+    theme_bw() +
+    geom_bar(fill = na.color, color='black', alpha=0.6)  +
+    ggtitle("Prosper Credit Ratings") +
+    scale_x_discrete(limits = c("AA","A","B","C","D","E","HR",NA))
+```
+
+Investigated other variables known to influence credit: income, debt-to-income ratio, credit history, utilization rate, available credit, delinquencies, credit inquires, and home-ownership.
+
+```{r univariate-figures-2}
+# income ranges
+na.color <- c("blue","blue","blue","blue","blue","red")
+ggplot(data = data,
+       aes(x=IncomeRange)) +
+    theme_bw() +
+    geom_bar(fill = na.color, color='black', alpha=0.6) +
+    ggtitle("Income Ranges") +
+    scale_x_discrete(limits = c("$1-24,999","$25,000-49,999",
+                                "$50,000-74,999", "$75,000-99,999",
+                                "$100,000+",NA))
+
+# income monthly
+ggplot(data = data,
+       aes(x=StatedMonthlyIncome)) +
+    theme_bw() +
+    geom_histogram(fill = 'blue', color='black', alpha=0.6, binwidth=500) +
+    xlim(quantile(data$StatedMonthlyIncome,0.01, na.rm = TRUE),
+         quantile(data$StatedMonthlyIncome,0.98, na.rm = TRUE)) +
+    geom_vline(xintercept = median(data$StatedMonthlyIncome, na.rm=TRUE),
+               color="red", linetype=2)  +
+    ggtitle("Monthly Income")
+
+# income to debt ratio
+ggplot(data = data,
+       aes(x=DebtToIncomeRatio)) +
+    theme_bw() +
+    geom_histogram(fill = 'blue', color='black', alpha=0.6, binwidth=.05) +
+    xlim(quantile(data$DebtToIncomeRatio,0.01, na.rm = TRUE),
+         quantile(data$DebtToIncomeRatio,0.99, na.rm = TRUE)) +
+    geom_vline(xintercept = median(data$DebtToIncomeRatio, na.rm=TRUE),
+               color="red", linetype=2)  +
+    ggtitle("Debt-to-Income Ratio")
+
+# credit history
+ggplot(data = data,
+       aes(x=CreditHistory.Years)) +
+    theme_bw() +
+    geom_histogram(fill = 'blue', color='black', alpha=0.6, binwidth=1) +
+    xlim(quantile(data$CreditHistory.Years,0.01, na.rm = TRUE),
+         quantile(data$CreditHistory.Years,0.99, na.rm = TRUE)) +
+    geom_vline(xintercept = median(data$CreditHistory.Years, na.rm=TRUE),
+               color="red", linetype=2)  +
+    ggtitle("Credit History (Years)")
+
+# utilization rates
+ggplot(data = data,
+       aes(x=BankcardUtilization)) +
+    theme_bw() +
+    geom_histogram(fill = 'blue', color='black', alpha=0.6, binwidth=0.02) +
+    xlim(0,quantile(data$BankcardUtilization, 0.99, na.rm = TRUE)) +
+    geom_vline(xintercept = median(data$BankcardUtilization, na.rm=TRUE),
+               color="red", linetype=2)  +
+    ggtitle("Utilization Rate")
+
+# available credit
+ggplot(data = data,
+       aes(x=AvailableBankcardCredit)) +
+    theme_bw() +
+    geom_histogram(fill = 'blue', color='black', alpha=0.6, binwidth=2000) +
+    xlim(0,quantile(data$AvailableBankcardCredit, 0.99, na.rm = TRUE)) +
+    geom_vline(xintercept = median(data$AvailableBankcardCredit, na.rm=TRUE),
+               color="red", linetype=2)  +
+    ggtitle("Available Credit") +
+    scale_y_sqrt()
+
+# delinquencies
+na.color <- c("blue","blue","blue","red")
+ggplot(data = data,
+       aes(x=TotalDelinquencies)) +
+    theme_bw() +
+    geom_bar(fill = na.color, color='black', alpha=0.6) +
+    ggtitle("Delinquencies")
+
+# Inquiries Last 6 Months
+ggplot(data = data,
+       aes(x=InquiriesLast6Months)) +
+    theme_bw() +
+    geom_histogram(fill = 'blue', color='black', alpha=0.6, binwidth=1) +
+    geom_vline(xintercept = median(data$InquiriesLast6Months, na.rm=TRUE),
+               color="red", linetype=2)  +
+    xlim(0,10) +
+    ggtitle("Inquiries (last 6 months)")
+
+# homeowner
+ggplot(data = data,
+       aes(x=IsBorrowerHomeowner)) +
+    theme_bw() +
+    geom_bar(fill = 'blue', color='black', alpha=0.6) +
+    ggtitle("Homeowner Status")
+
+```
+
+Investigated other variables related to Prosper: borrower rate, loans over time, loan amounts, monthly payments, investors per loan, lender yield, and default losses.
+
+```{r univariate-figures-3}
+# borrower rate
+ggplot(data = data,
+       aes(x=BorrowerRate)) +
+    theme_bw() +
+    geom_histogram(fill = 'blue', color='black', alpha=0.6, binwidth=.01) +
+    xlim(quantile(data$BorrowerRate,0.01, na.rm = TRUE),
+         quantile(data$BorrowerRate,0.99, na.rm = TRUE)) +
+    geom_vline(xintercept = median(data$BorrowerRate, na.rm=TRUE),
+               color="red", linetype=2)  +
+    ggtitle("Borrower Rate")
+
+# loans per quarter
+ggplot(data = data,
+       aes(x=as.factor( LoanOriginationYearQuarter ) )) +
+    theme_bw() +
+    geom_bar(fill = 'blue', color='black', alpha=0.6) +
+    ggtitle("Loans") + xlab("") +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+# loan amounts
+ggplot(data = data,
+       aes(x=LoanOriginalAmount)) +
+    theme_bw() +
+    geom_histogram(fill = 'blue', color='black', alpha=0.6, binwidth=1000) +
+    xlim(quantile(data$LoanOriginalAmount,0.01, na.rm = TRUE),
+         quantile(data$LoanOriginalAmount,0.99, na.rm = TRUE)) +     
+    geom_vline(xintercept = median(data$LoanOriginalAmount, na.rm=TRUE),
+               color="red", linetype=2)  +
+    ggtitle("Loan Amounts")
+
+# monthly payments
+ggplot(data = data,
+       aes(x=MonthlyLoanPayment)) +
+    theme_bw() +
+    geom_histogram(fill = 'blue', color='black', alpha=0.6, binwidth=25) +
+    xlim(quantile(data$MonthlyLoanPayment,0.01, na.rm = TRUE),
+         quantile(data$MonthlyLoanPayment,0.99, na.rm = TRUE)) +
+    geom_vline(xintercept = median(data$MonthlyLoanPayment, na.rm=TRUE),
+               color="red", linetype=2)  +
+    ggtitle("Monthly Payments")
+
+# investors per loan
+ggplot(data = data,
+       aes(x=Investors)) +
+    theme_bw() +
+    geom_histogram(fill = 'blue', color='black', alpha=0.6, binwidth=10) +
+    xlim(quantile(data$Investors,0.01, na.rm = TRUE),
+         quantile(data$Investors,0.99, na.rm = TRUE)) +
+    geom_vline(xintercept = median(data$Investors, na.rm=TRUE),
+               color="red", linetype=2)  +
+    ggtitle("Investors") +
+    scale_y_log10()
+
+# lender yield
+ggplot(data = data,
+       aes(x=LenderYield)) +
+    theme_bw() +
+    geom_histogram(fill = 'blue', color='black', alpha=0.6, binwidth=.01) +
+    xlim(quantile(data$LenderYield,0.01, na.rm = TRUE),
+         quantile(data$LenderYield,0.99, na.rm = TRUE)) +
+    geom_vline(xintercept = median(data$LenderYield, na.rm=TRUE),
+               color="red", linetype=2)  +
+    ggtitle("Lender Yield")
+
+# default losses
+m <- median(subset(data, LP_NetPrincipalLoss > 0)$LP_NetPrincipalLoss)
+ggplot(data = subset(data, LP_NetPrincipalLoss > 0),
+       aes(x=LP_NetPrincipalLoss)) +
+    theme_bw() +
+    geom_histogram(fill = 'blue', color='black', alpha=0.6, binwidth=500) +
+    xlim(quantile(data$LP_NetPrincipalLoss,0.01, na.rm = TRUE),
+         quantile(data$LP_NetPrincipalLoss,0.99, na.rm = TRUE)) +
+    geom_vline(xintercept = m, color="red", linetype=2)  +
+    ggtitle("Net Losses (Defaults)")
+```
+
+#### What is the structure of your dataset?
+
+This dataset contained 82 variables/features and 113,937 observations. Each observation was a loan. The variables/features were financial information about the loans and the responsible person, such as credit scores/ratings, income, loan amount, occupation, monthly payments, and loan status. Credit scores typically range from 350 to 850.
+
+#### What is/are the main feature(s) of interest in your dataset?
+
+The main features of this dataset were loan status and credit score.
+
+#### What other features in the dataset do you think will help support your investigation into your feature(s) of interest?
+
+Other variables of importance were income, debt-to-income ratio, credit history, utilization rate, available credit, delinquencies, credit inquires, home-ownership, borrower rate, loans over time, loan amounts, monthly payments, investors per loan, lender yield, and default losses.
+
+#### Did you create any new variables from existing variables in the dataset?
+
+Yes, 3 new variables were created: 'CreditHistory.Years','CreditScoreAverage', and 'Delinquencies'. 'CreditHistory.Years' was the difference in years between 'FirstRecordedCreditLine' and 'LoanOriginationDate'. 'CreditScoreAverage' was the mean of 'CreditScoreRangeLower' and 'CreditScoreRangeUpper'. 'Delinquencies' was defined as a Boolean (true/false) value if the person ever had a delinquency.
+
+#### Of the features you investigated, were there any unusual distributions? Did you perform any operations on the data to tidy, adjust, or change the form of the data? If so, why did you do this?
+
+Most of the distributions were typical/expected; however, the number of Prosper loans per year/quarter was unusual. The plot showed a gradual increase from 2005 to 2008, then a sudden drop to zero in 2009, followed by rapid/exponential growth from 2010 to 2014. This data suggested that Prosper was shut down, restructured, or stopped processing new loans during 2009.
+
+The form of the 'LoanStatus' and 'Delinquencies' data was changed. Initially, 'LoanStatus' was broken down into 5 different 'past due' variables. Also, 'default' and 'chargedoff' were considered two different groups. Hence, these groups were consolidated to make the analysis easier to visualize. Furthermore, the delinquencies data was changed into a Boolean (true/false) variable to simply analysis/visualization.
+
+# Bivariate Analysis
+
+Investigated variable correlations to preview relationships.
+
+```{r, ggpairs-figures-1}
+# candidate variables to investigate
+ggpairs_data <- data[c("CreditScoreAverage",
+                       "BorrowerRate",
+                       "AvailableBankcardCredit",
+                       "BankcardUtilization",
+                       "StatedMonthlyIncome",
+                       "CreditHistory.Years",
+                       "LoanOriginalAmount",
+                       "MonthlyLoanPayment",
+                       "LenderYield")]
+num_vars <- as.character( seq(1, length(ggpairs_data)) )
+colnames(ggpairs_data) <- paste("V", num_vars, sep="_")
+# cor plot
+ggcorr(ggpairs_data,
+       low = "red", mid = "white", high = "green",
+       label=TRUE, name="")
+```
+
+Investigated the relationship between credit scores and loan status.
+
+```{r bivariate-figures-1}
+# Credit Scores vs. Loan Status
+ggplot(data = data,
+       aes(x=CreditScoreAverage, fill=LoanStatus)) +
+    theme_bw() +
+    geom_histogram(color='black', alpha=0.75, binwidth = 20) +
+    xlim(quantile(data$CreditScoreAverage,0.01, na.rm = TRUE),
+         quantile(data$CreditScoreAverage,0.99, na.rm = TRUE)) +
+    ggtitle("Credit Scores vs. Loan Status")
+
+# Credit Scores vs. Loan Status
+ggplot(data = data,
+       aes(y=CreditScoreAverage, x=LoanStatus, fill=LoanStatus)) +
+    theme_bw() +
+    geom_boxplot(color='black', alpha=0.75) +
+    theme(legend.position="none") +
+    ggtitle("Credit Scores vs. Loan Status")
+```
+
+Investigated the relationship of income, borrow rate, debt-to-income ratio, delinquencies, and utilization rate vs. credit score and loan status.
+
+```{r bivariate-figures-2}
+# Income vs. Credit Score
+ggplot(data = data,
+       aes(y=StatedMonthlyIncome, x=CreditScoreAverage)) +
+    theme_bw() +
+    geom_point(color='navy', alpha=0.05, position='jitter') +
+    ylim(quantile(data$StatedMonthlyIncome,0.01, na.rm = TRUE),
+         quantile(data$StatedMonthlyIncome,0.99, na.rm = TRUE)) +
+    geom_smooth(method="lm", color='red', linetype=2) +
+    ggtitle("Credit Score vs. Monthly Income")
+
+# Credit Score vs. Borrow Rate
+ggplot(data = data,
+       aes(y=BorrowerRate, x=CreditScoreAverage)) +
+    theme_bw() +
+    geom_point(color='navy', alpha=0.025, position = 'jitter') +
+    geom_smooth(method='lm', color='red', linetype=2) +
+    xlim(400,900) + ylim(0,0.4) +
+    ggtitle("Credit Score vs. Borrower Rate")
+
+# Credit Score vs. Available Credit
+ggplot(data = data,
+       aes(y=AvailableBankcardCredit, x=CreditScoreAverage)) +
+    theme_bw() +
+    geom_point(color='navy', alpha=0.025, position = 'jitter') +
+    geom_smooth(method='lm', color='red', linetype=2) +
+    xlim(400,900) + ylim(0, 50000) +
+    ggtitle("Credit Score vs. Available Credit")
+
+# Credit Score vs. Utilization Rate
+ggplot(data = data,
+       aes(y=BankcardUtilization, x=CreditScoreAverage)) +
+    theme_bw() +
+    geom_point(color='navy', alpha=0.1, position = 'jitter') +
+    xlim(500,900 ) + ylim(0,1.25) +
+    geom_smooth(method="lm", color='red', linetype=2) +
+    ggtitle("Credit Score vs. Utilization Rate")
+
+# Credit Score vs. Debt-to-Income Ratio
+ggplot(data = data,
+       aes(y=DebtToIncomeRatio, x=CreditScoreAverage)) +
+    theme_bw() +
+    geom_point(color='navy', alpha=0.1, position = 'jitter') +
+    xlim(500,900) + ylim(0,1.25) +
+    geom_smooth(method = "lm", formula = y ~ x + I(x^2),
+                color='red', linetype=2) +
+    ggtitle("Credit Score vs. Debt-to-Income Ratio")  
+
+# Credit Score vs. Debt-to-Income Ratio moasic plot quantiles
+data$DebtToIncomeRatioQuantile <- quantcut(data$DebtToIncomeRatio,
+                                          q=seq(0,1, by=0.25),
+                                          na.rm=TRUE)
+data$CreditScoreAverageQuantile <- quantcut(data$CreditScoreAverage,
+                                           q=seq(0,1, by=0.25),
+                                           na.rm=TRUE)
+totals <- table(as.factor(data$DebtToIncomeRatioQuantile),
+                data$CreditScoreAverageQuantile)
+mcolors <- c("red","green","blue","purple")
+mosaicplot(totals, color=mcolors, las=1,
+           main="Credit Score vs. Debt-to-Income Ratio")
+
+# Credit Score vs. Delinquent
+ggplot(data = data,
+       aes(x=Delinquencies, y=CreditScoreAverage)) +
+    theme_bw() +
+    geom_boxplot(color='black', alpha=0.6) +
+    ggtitle("Credit Score vs. Delinquent")
+```
+
+```{r bivariate-figures-3}
+# Borrow Rate vs. Loan Status
+ggplot(data = data,
+       aes(x=LoanStatus, y=BorrowerRate, fill=LoanStatus)) +
+    theme_bw() +
+    geom_boxplot(color='black', alpha=0.6) +
+    coord_cartesian( ylim = c(0,0.5) ) +
+    ggtitle("Borrower Rate vs. Loan Status") +
+    theme(legend.position="none")
+
+# Utilization Rate vs. Loan Status
+ggplot(data = data,
+       aes(x=LoanStatus, y=BankcardUtilization, fill=LoanStatus)) +
+    theme_bw() +
+    geom_boxplot(color='black', alpha=0.6) +
+    coord_cartesian( ylim = c(0,2) ) +
+    ggtitle("Utilization Rate vs. Loan Status") +
+    theme(legend.position="none")
+
+# Debt to Income vs. Loan Status
+ggplot(data = data,
+       aes(x=LoanStatus, y=DebtToIncomeRatio, fill=LoanStatus)) +
+    theme_bw() +
+    geom_boxplot(color='black', alpha=0.6) +
+    coord_cartesian( ylim = c(0,1) ) +
+    ggtitle("Debt-to-Income Ratio vs. Loan Status") +
+    theme(legend.position="none")
+
+# Delinquency vs. Loan Status
+totals <- table(as.factor(data$TotalDelinquencies),
+                data$LoanStatus)
+mcolors <- c("red","green","blue","purple")
+mosaicplot(totals, color=mcolors, las=1,
+           main="Loan Status vs. Delinquency")
+```
+
+Investigated the interaction between other variables.
+
+```{r bivariate-figures-4}
+# income vs. borrow rate
+ggplot(data = data,
+       aes(x=StatedMonthlyIncome, y=BorrowerRate)) +
+    theme_bw() +
+    geom_point(color='navy', alpha=0.015, position = 'jitter') +
+    geom_smooth(method='lm', color='red', linetype=2) +
+    xlim(0,12500) + ylim(0,0.4) +
+    ggtitle("Monthly Income vs. Borrower Rate")
+
+# income vs. utilization rate
+ggplot(data = data,
+       aes(x=StatedMonthlyIncome, y=BankcardUtilization)) +
+    theme_bw() +
+    geom_point(color='navy', alpha=0.015, position = 'jitter') +
+    geom_smooth(method='lm', color='red', linetype=2) +
+    xlim(0,12500) + ylim(0,1.05) +
+    ggtitle("Monthly Income vs. Utilization Rate")
+
+# Inquiries Last 6 Months vs. Debt-to-Income Ratio
+ggplot(data = data,
+       aes(y=DebtToIncomeRatio, x=InquiriesLast6Months)) +
+    theme_bw() +
+    geom_point(color='navy', alpha=0.1, position = 'jitter') +
+    geom_smooth(method='lm', color='red', linetype=2) +
+    xlim(0,10)+ ylim(0,1.05) +
+    ggtitle("Inquiries Last 6 Months vs. Debt-to-Income Ratio")
+
+# Credit History length vs. Borrower Rate
+ggplot(data = data,
+       aes(y=BorrowerRate, x=CreditHistory.Years)) +
+    theme_bw() +
+    geom_point(color='navy', alpha=0.05, position = 'jitter') +
+    geom_smooth(method='lm', color='red', linetype=2) +
+    ylim(0,0.4) +
+    ggtitle("Credit History (Years) vs. Borrower Rate")
+
+# Lender Yield vs. Borrow Rate
+ggplot(data = data,
+       aes(x=BorrowerRate, y=LenderYield)) +
+    theme_bw() +
+    geom_point(color='navy', alpha=0.1, position = 'jitter') +
+    geom_smooth(method='lm', color='red', linetype=2) +
+    xlim(0,0.4) + ylim(0,0.4) +
+    ggtitle("Lender Yield vs. Borrower Rate")
+```
+
+Investigated additional variables related to Prosper.  
+
+```{r bivariate-figures-5}
+# Loans Count in Each Quarter vs. Status
+ggplot(data = data,
+       aes(x=as.factor(LoanOriginationYearQuarter), fill=LoanStatus)) +
+    theme_bw() +
+    geom_bar(color='black', alpha=0.6) +
+    ggtitle("Loans/Quarter vs. Loan Status") + xlab("") +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+# Loans Count in each Quarter vs. Income Range
+data$IncomeRange <- factor(data$IncomeRange,
+                           levels(data$IncomeRange)[c(1,3,4,5,2)])
+ggplot(data = data,
+       aes(x=as.factor(LoanOriginationYearQuarter), fill=IncomeRange)) +
+    theme_bw() +
+    geom_bar(color='black', alpha=0.6) +
+    ggtitle("Loans/Quarter vs. Income Range") + xlab("") +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+# Loans Count in each Quarter vs. Delinquencies
+ggplot(data = data,
+       aes(x=as.factor(LoanOriginationYearQuarter),
+           fill=TotalDelinquencies)) +
+    theme_bw() +
+    geom_bar(color='black', alpha=0.6) +
+    ggtitle("Loans/Quarter vs. Delinquencies") + xlab("") +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+# Loans Count in each Quarter vs. Borrow Rate
+data$BorrowRateQuantile <- quantcut(data$BorrowerRate,
+                                   q=seq(0,1,by=0.25),
+                                   na.rm=TRUE)
+ggplot(data = data,
+       aes(x=as.factor( LoanOriginationYearQuarter),
+           fill=BorrowRateQuantile )) +
+    theme_bw() +
+    geom_bar(color='black', alpha=0.6) +
+    ggtitle("Loans/Quarter vs. Borrower Rate") + xlab("") +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+# Borrower Rate vs. Prosper Rating
+totals <- table(as.factor( data$LoanOriginationYearQuarter),
+                data$BorrowRateQuantile)
+mcolors <- c("red","green","blue","purple")
+mosaicplot(totals, color=mcolors, las=2,
+           main="Loans/Quarter vs. Borrower Rate")
+
+# Borrower Rate vs. Term (Months)
+ggplot(data = data,
+       aes(x=BorrowerRate, fill=as.factor(Term))) +
+    theme_bw() +
+    geom_histogram(color='black', alpha=0.6, binwidth = .01) +
+    xlim(quantile(data$BorrowerRate,0.01, na.rm = TRUE),
+         quantile(data$BorrowerRate,0.99, na.rm = TRUE)) +
+    ggtitle("Borrower Rate vs. Term (Months)")
+
+# Credit Score vs. Prosper Rating
+ggplot(data = data,
+       aes(y=CreditScoreAverage, x=ProsperRating..Alpha.)) +
+    theme_bw() +
+    geom_boxplot(color='black', alpha=0.75) +
+    ggtitle("Prosper Rating vs. Credit Score") +
+    scale_x_discrete(limits = c("AA","A","B","C","D","E","HR",NA))
+
+# Borrower Rate vs. Prosper Rating
+ggplot(data = data,
+       aes(y=BorrowerRate, x=ProsperRating..Alpha.)) +
+    theme_bw() +
+    geom_boxplot(color='black', alpha=0.75) +
+    ggtitle("Prosper Rating vs. Borrower Rate") +
+    scale_x_discrete(limits = c("AA","A","B","C","D","E","HR",NA))
+
+# Prosper Rating vs. Loan Status
+data$ProsperRating..Alpha. <- factor(data$ProsperRating..Alpha.,
+                levels(data$ProsperRating..Alpha.)[c(2,1,3,4,5,6,7)])
+totals <- table(as.factor(data$ProsperRating..Alpha.),
+                data$LoanStatus)
+mcolors <- c("red","green","blue","purple")
+mosaicplot(totals, color=mcolors, las=1,
+           main="Loan Status vs. Prosper Rating")
+
+# Prosper Score vs. Yield
+ggplot(data = subset(data, !is.na(ProsperRating..Alpha.)),
+       aes(x=LenderYield, fill=ProsperRating..Alpha.)) +
+    theme_bw() +
+    geom_histogram(color='black', alpha=0.6, binwidth = .02) +
+    xlim(quantile(data$LenderYield,0.01, na.rm = TRUE),
+         quantile(data$LenderYield,0.99, na.rm = TRUE)) +
+    ggtitle("Lender Yield vs. Prosper Rating")
+
+# Prosper Score vs. Yield Density Plot
+data_noHR <- subset(data, ProsperRating..Alpha. != "HR")
+ggplot(data = subset(data_noHR, !is.na(ProsperRating..Alpha.)),
+       aes(x=LenderYield)) +
+    theme_bw() +
+    geom_density(aes(group=ProsperRating..Alpha.,
+                     color=ProsperRating..Alpha.,
+                     fill=ProsperRating..Alpha.),
+                 color='black', alpha=0.6) +
+    ggtitle("Lender Yield vs. Prosper Rating")
+```
+
+#### Talk about some of the relationships you observed in this part of the investigation. How did the feature(s) of interest vary with other features in the dataset?
+
+The following relationships were observed:
+
+- Credit score was positively correlated with monthly income, available credit, and Prosper rating   
+- Credit score was negatively correlated with borrower rate, utilization rate, and delinquencies   
+- Loan status of 'defaulted' and 'late' were associated with lower credit scores, lower Prosper ratings, higher borrower rates, higher delinquency numbers, and higher yields    
+
+#### Did you observe any interesting relationships between the other features (not the main feature(s) of interest)?
+
+The correlation between the debt-to-income ratio vs. credit score was surprising. The scatter-plot suggested a non-linear relationship with the maximum debt-to-income ratio in the center of the credit score range. A negative relationship was anticipated.
+
+#### What was the strongest relationship you found?
+
+The strongest relationship was between credit score and borrower rate. Higher credit scores/ratings were strongly-positively correlated to lower borrower rates, and vice-versa.
+
+### Multivariable Analysis
+
+Preview multiple-variable relationships by adding color (loan status) to scatter/pairs plot.
+
+```{r, ggpairs-figures-2, fig.height=8, fig.width=8}
+# smaple data to reduce computations
+set.seed(5150)
+ggpairs_data$LoanStatus <- data$LoanStatus
+ggpairs_data_sample <- ggpairs_data[sample(nrow(ggpairs_data), 1000),]
+
+# transparent density plot function
+# http://stackoverflow.com/questions/34975190/
+my_dens <- function(data, mapping, ...) {
+  ggplot(data = data, mapping=mapping) +
+    geom_density(..., alpha = 0.4, color = NA) }
+
+# pairs plot for selected variables
+ggpairs(ggpairs_data_sample,
+        columns = 1:(ncol(ggpairs_data_sample)-1),
+        lower = list(continuous = wrap("smooth", alpha = 0.1)),
+        upper = list(continuous = "blank"),
+        diag = list(continuous=my_dens),
+        aes(color=LoanStatus),
+        axisLabels='none') +
+    theme_bw() +
+    theme(axis.ticks=element_blank(),
+          axis.line=element_blank(),
+          axis.text=element_blank(),
+          panel.grid.major= element_blank())
+```
+
+Investigate deeper into multivariate relationships.
+
+```{r multivariate-figures-1}
+# loans/quarter vs.Loan Status vs. Prosper Rating
+ggplot(data = data,
+       aes(x=as.factor( LoanOriginationYearQuarter), fill=LoanStatus )) +
+    theme_bw() +
+    geom_bar(color='black', alpha=0.6) +
+    ggtitle("Loans/Quarter, Loan Status, Prosper Rating") +
+    xlab("Year.Quarter") +
+    facet_wrap(~ProsperRating..Alpha., ncol = 4) +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, color='black')) +
+    scale_x_discrete(breaks = c("2006.1","2008.1","2010.1",
+                                "2012.1","2014.1"))
+
+# Credit Scores vs. Loan Status vs. Income Range vs. Homeowner Status
+ggplot(data = data,
+       aes(x=CreditScoreAverage, fill=LoanStatus)) +
+    theme_bw() +
+    geom_histogram(color='black', alpha=0.75, binwidth = 20) +
+    xlim(quantile(data$CreditScoreAverage,0.01, na.rm = TRUE),
+         quantile(data$CreditScoreAverage,0.99, na.rm = TRUE)) +
+    facet_grid(IsBorrowerHomeowner~IncomeRange) +
+    ggtitle("Credit Scores, Loan Status, Income, Homeownership")
+
+# Credit Scores vs. Loan Status vs. Delinquincies
+ggplot(data = data,
+       aes(x=CreditScoreAverage, fill=LoanStatus)) +
+    theme_bw() +
+    geom_histogram(color='black', alpha=0.75, binwidth = 20) +
+    xlim(quantile(data$CreditScoreAverage,0.01, na.rm = TRUE),
+         quantile(data$CreditScoreAverage,0.99, na.rm = TRUE)) +
+    facet_grid(~TotalDelinquencies) +
+    ggtitle("Credit Scores, Loan Status, Delinquincies")
+
+# default losses vs. delinquencies vs. year
+ggplot(data = subset(data, LP_NetPrincipalLoss > 0),
+       aes(x=LP_NetPrincipalLoss, fill=Delinquencies)) +
+    theme_bw() +
+    geom_histogram(color='black', alpha=0.6, binwidth = 500) +
+    facet_wrap(~Year, ncol=4) +
+    ggtitle("Net Losses (Defaults), Delinquencies, Year")
+
+# Credit Score vs. Loan Status vs. Year
+ggplot(data = data,
+       aes(x=CreditScoreAverage, fill=LoanStatus)) +
+    theme_bw() +
+    geom_histogram(color='black', alpha=0.75, binwidth = 20) +
+    xlim(quantile(data$CreditScoreAverage,0.01, na.rm = TRUE),
+         quantile(data$CreditScoreAverage,0.99, na.rm = TRUE)) +
+    facet_wrap(~Year, ncol=5) +
+    ggtitle("Credit Scores, Loan Status, Year")
+
+# Borrower Rate vs. Loan Status vs. Year
+ggplot(data = data,
+       aes(x=BorrowerRate, fill=LoanStatus)) +
+    theme_bw() +
+    geom_histogram(color='black', alpha=0.75, binwidth = .02) +
+    facet_wrap(~Year, ncol=5) +
+    ggtitle("Borrower Rate, Loan Status, Year")
+```
+
+```{r multivariate-figures-2}
+# Lender Yield vs. Debt-to-Income vs. Prosper Rating
+ggplot(data = data,
+       aes(y=DebtToIncomeRatio, x=LenderYield, color=ProsperRating..Alpha.)) +
+    theme_bw() +
+    geom_point(alpha=0.25, position = 'jitter') +
+    geom_smooth(method='lm', color='black', linetype=2) +
+    ylim(0,1.5) + xlim(0,0.35) +
+    ggtitle("Lender Yield, Debt-to-Income, Prosper Rating")
+
+# Lender Yield vs. Credit Score vs. Prosper Rating and Loan Status
+ggplot(data = data,
+      aes(y=LenderYield, x=CreditScoreAverage, color=ProsperRating..Alpha.)) +
+    theme_bw() +
+    geom_point(alpha=0.5, position = 'jitter') +
+    xlim(400,900) + ylim(0,0.4) +
+    geom_smooth(method='lm', color='black', linetype=2) +
+    facet_wrap(~LoanStatus) +
+    ggtitle("Lender Yield, Credit Score, Prosper Rating, Loan Status")
+
+# Bank Utilization vs. Credit Score vs. Loan Status
+ggplot(data = data,
+       aes(y=BankcardUtilization, x=CreditScoreAverage, color=LoanStatus)) +    
+    scale_color_brewer(palette="Set1") +
+    theme_bw() +
+    geom_point(alpha=0.25, position = 'jitter') +
+    geom_smooth(method='lm', color='black', linetype=2) +
+    ylim(0,1.5)+ xlim(500,900) +
+    ggtitle("Credit Score, Utilization Rate, Loan Status")
+
+# Credit Score vs. Debt-to-Income Ratio
+ggplot(data = data,
+       aes(y=DebtToIncomeRatio, x=CreditScoreAverage, color=LoanStatus)) +
+    scale_color_brewer(palette="Set1") +
+    theme_bw() +
+    geom_point(alpha=0.1, position = 'jitter') +
+    xlim(500,900) + ylim(0,1.25) +
+    geom_smooth(method = "lm", formula = y ~ x + I(x^2),
+                color='black', linetype=2) +
+    ggtitle("Credit Score, Debt-to-Income Ratio, Loan Status")  
+```
+
+```{r multivariate-figures-3}
+# Credit Scores, Borrower Rate, Loan Status, Delinquencies, Homeownership
+ggplot(data = data,
+       aes(y=BorrowerRate, x=CreditScoreAverage, color=LoanStatus)) +
+    scale_color_brewer(palette="Set1") +
+    theme_bw() +
+    geom_point(alpha=0.25, position = 'jitter') +
+    geom_smooth(method='lm', color='black', linetype=2) +
+    xlim(500,900) + ylim(0,0.4) +
+    facet_wrap(IsBorrowerHomeowner~Delinquencies) +
+    ggtitle("Credit Score, Borrower Rate, Loan Status, Homeowner, Delinquent")
+
+# Credit Scores vs. Borrower Rate vs. Loan Status vs. Prosper Rating
+ggplot(data = data,
+       aes(y=BorrowerRate, x=CreditScoreAverage, color=LoanStatus)) +
+    scale_color_brewer(palette="Set1") +
+    theme_bw() +
+    geom_point(alpha=0.5, position = 'jitter') +
+    geom_smooth(method='lm', color='black', linetype=2) +
+    xlim(500,900) + ylim(0,0.4) +
+    facet_wrap(~ProsperRating..Alpha.) +
+    ggtitle("Credit Score, Borrower Rate, Loan Status, Prosper Rating")
+
+# Credit Scores vs. Credit History vs. Loan Status vs. Delinquencies
+ggplot(data = data,
+       aes(y=CreditHistory.Years, x=CreditScoreAverage, color=LoanStatus)) +
+    scale_color_brewer(palette="Set1") +
+    theme_bw() +
+    geom_point(alpha=0.3, position = 'jitter') +
+    geom_smooth(method='lm', color='black', linetype=2) +
+    facet_wrap(~Delinquencies)+
+    ggtitle("Credit Score, Credit History, Loan Status, Delinquent")
+
+# Debt to Income Ratio vs. Credit Score vs. Loan Status vs. Income Range
+ggplot(data = data,
+       aes(y=DebtToIncomeRatio, x=CreditScoreAverage, color=LoanStatus)) +
+    scale_color_brewer(palette="Set1") +
+    theme_bw() +
+    geom_point(alpha=0.3, position = 'jitter') +
+    facet_wrap(~IncomeRange) + ylim(0,1.5) +
+    ggtitle(("Debt-to-Income, Credit Score, Loan Status, Income"))
+
+# Debt to Income Ratio vs. Monthly Income vs. Loan Status
+ggplot(data = data,
+       aes(y=DebtToIncomeRatio, x=StatedMonthlyIncome, color=LoanStatus)) +
+    scale_color_brewer(palette="Set1") + theme_bw() +
+    geom_point(alpha=0.3, position = 'jitter') +
+    ylim(0,1.5) + xlim(0,20000) +
+    ggtitle("Debt-to-Income, Monthly Income, Loan Status")
+
+# Loan Amount vs. Borrow Rate vs. Loan Status
+ggplot(data = data,
+       aes(y=LoanOriginalAmount, x=BorrowerRate, color=LoanStatus)) +
+    scale_color_brewer(palette="Set1") +
+    theme_bw() +
+    geom_point(alpha=0.5, position = 'jitter') +
+    geom_smooth(method='lm', color='black', linetype=2) +
+    xlim(0,0.4) +
+    ggtitle("Loan Amount, Borrow Rate, Loan Status")
+
+# Loan Amount vs. Borrow Rate vs. Credit Score
+ggplot(data = data,
+       aes(y=LoanOriginalAmount, x=BorrowerRate, color=CreditScoreAverage)) +
+    scale_color_gradient(low = "red", high = "green", guide = "colourbar") +
+    theme_bw() +
+    geom_point(alpha=0.5, position = 'jitter') +
+    geom_smooth(method='lm', color='black', linetype=2) +
+    xlim(0,0.4) +
+    ggtitle("Loan Amount, Borrow Rate, Credit Score")
+```
+
+```{r multivariate-figures-4}
+# Lender Yield vs. Prosper Rating vs. Year
+data_2009_2014 <- subset(data, Year == "2014" | Year == "2013" |
+                               Year == "2012" | Year == "2011" |
+                               Year == "2010" | Year == "2009")
+ggplot(data = data_2009_2014,
+       aes(y=LenderYield, x=ProsperRating..Alpha.)) +
+    theme_bw() +
+    geom_boxplot(color='black', alpha=0.75) +
+    ggtitle(("Lender Yield vs. Prosper Rating vs. Year")) +
+    facet_wrap(~Year, ncol=3) +
+    scale_x_discrete(limits = c("AA","A","B","C","D","E","HR"))
+
+# Borrower Rate vs. Prosper Rating vs. Year
+ggplot(data = data_2009_2014,
+       aes(y=BorrowerRate, x=ProsperRating..Alpha.)) +
+    theme_bw() +
+    geom_boxplot(color='black', alpha=0.75) +
+    ggtitle(("Borrower Rate vs. Prosper Rating vs. Year")) +
+    facet_wrap(~Year, ncol=3) +
+    scale_x_discrete(limits = c("AA","A","B","C","D","E","HR"))
+```
+
+#### Talk about some of the relationships you observed in this part of the investigation. Were there features that strengthened each other in terms of looking at your feature(s) of interest?
+
+The following relationships were observed:
+
+- Loan status of 'defaulted' was associated with lower credit scores, shorter credit histories, higher utilization rates, higher lender yields, lower incomes, delinquencies, higher borrower rates, and non-home ownership
+- Adding loan status (via color) to the scatter-plots of credit score, borrower rate, and debt-to-income ratio strengthened the visualizations and demonstrated clear differences among the groups
+- Borrower rate and lender yield were strongly correlated with Prosper rating
+- Loan status varied depending on date (higher default rate prior to 2009)     
+
+#### Were there any interesting or surprising interactions between features?
+
+The most interesting observation was the sudden transition from green to blue ('defaulted' to 'completed' loan status) at approximately 650 credit score in various plots (credit history, borrow rate, and debt-to-income ratio. This 'transition point' was found to shift based on income range.
+
+## Final Plots and Summary
+
+### Figure 1 and Description
+
+```{r final-figure-1}
+# Loans Count in Each Quarter vs. Status
+ggplot(data = data,
+       aes(x=as.factor( LoanOriginationYearQuarter), fill=LoanStatus )) +
+    theme_bw() +
+    geom_bar(color='black', alpha=0.6) +
+    ggtitle("Figure 1: Prosper Loans Status 2005-2014") +
+    xlab("Year and Quarter") + ylab("Number") +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+    guides(fill=guide_legend(title="Loan Status")) +
+    theme(legend.position = c(.1, .825),  
+          legend.background = element_rect(color = "grey",
+                                           fill = "white",
+                                           size = 1,
+                                           linetype = "solid"))
+```
+
+```{r}
+# count total loans per year/quarter
+data_groupby_date <- group_by(data, LoanOriginationYearQuarter)
+total_loans <- summarise(data_groupby_date, total=n() )
+# count total defaults per year/quarter
+data_default <- filter(data, LoanStatus == "Defaulted")
+data_groupby_date_status <- group_by(data_default, LoanOriginationYearQuarter)
+total_default <- summarise(data_groupby_date_status, default=n() )
+# join data and calculate percent of defaults
+data_loans <- inner_join(total_loans, total_default,
+                         by = "LoanOriginationYearQuarter" )
+data_loans$percent <- data_loans$default / data_loans$total * 100
+```
+
+Figure 1: Prosper Loans Status 2005-2014. The distribution of total loans over time (x-axis) and corresponding loan status (colors) for each quarter from 2005 to 2014. Loans exhibited a steady increase from 2005 to 2008, then a sudden drop to zero in 2009 (Prosper was temporarily shut down by the SEC), followed by rapid/exponential growth from 2010 to 2014. Loans prior to 2009 showed higher default rates (27%-43%) than 2010 to 2014 (16%-22%). This figures best demonstrated the story of Prosper evolving from a small company making 1000-4000 loans per quarter in 2008 to the rapid growth of over 14,000 loans per quarter in 2013.
+
+### Figure 2 and Description
+
+```{r final-figure-2, fig.height=10}
+# Credit Score vs. Debt-To-Income Ratio vs. Income Range vs. Loan Status
+# figure part 1: credit score vs. debt-to-income
+g1 <- ggplot(data = data,
+         aes(y=DebtToIncomeRatio, x=CreditScoreAverage, color=LoanStatus)) +
+    scale_color_brewer(palette="Set1", name="Loan Status") +
+    theme_bw() +
+    geom_point(alpha=0.25, position = 'jitter') +
+    xlim(450,900) + ylim(0,1.5) +
+    geom_smooth(method = "lm", formula = y ~ x + I(x^2),
+                color='black', linetype=2) +
+    ggtitle("Figure 2: Credit Score, Debt-to-Income, Income, Loan Status") +
+    xlab("Credit Score") + ylab("Debt-To-Income Ratio") +
+    theme(legend.position = c(.1, .825),  
+          legend.background = element_rect(color = "grey",
+                                           fill = "white",
+                                           size = 1,
+                                           linetype = "solid"))
+# figure part 2: income ranges sub-plots
+g2 <- ggplot(data = data,
+          aes(y=DebtToIncomeRatio, x=CreditScoreAverage, color=LoanStatus)) +
+    scale_color_brewer(palette="Set1") + theme_bw() +
+    geom_point(alpha=0.3, position = 'jitter') +
+    facet_wrap(~IncomeRange) +
+    xlim(450,900) + ylim(0,1.5) +
+    ggtitle("") + xlab("Credit Score") + ylab("Debt-To-Income Ratio") +
+    theme(legend.position="none")
+# combine figure parts 1 and 2
+grid.arrange(g1,g2,ncol=1)
+```
+
+Figure 2: Credit Score, Debt-to-Income Ratio, Income Range vs. Loan Status. Scatter-plots of credit score (x-axis), debt-to-income-ratio (y-axis), and loan status (colors). This relationship was non-linear with a maximum in the middle of credit score range. The median credit score was 690 and the median debt-to-income ratio was 0.22. Loan defaults (green) were associated with credit scores below 650, debt-to-income ratios less than 0.5, and income ranges of $1-24,999/$25,000-$49,999 (sub-plots). Overall, this figure highlighted high and low risk metrics for potential loan defaults. (NA = income range data not available)
+
+### Figure 3 and Description
+
+```{r final-figure-3, fig.height=10}
+# Credit Scores, Borrower Rate, Loan Status, Delinquencies vs. Homeownership
+# figure part 1: credit score vs. borrower rate
+g1 <- ggplot(data = data,
+             aes(y=BorrowerRate, x=CreditScoreAverage, color=LoanStatus)) +
+    scale_color_brewer(palette="Set1", name="Loan Status") +
+    theme_bw() +
+    geom_point(alpha=0.25, position = 'jitter') +
+    geom_smooth(method='lm', color='black', linetype=2) +
+    xlim(450,900) + ylim(0,0.38) +
+    ggtitle("Figure 3: Credit Score, Rate, Status, Homeowner, Delinquent") +
+    xlab("Credit Score") + ylab("Borrower Rate") +
+    theme(legend.position = c(.9, .825),  
+          legend.background = element_rect(color = "grey",
+                                           fill = "white",
+                                           size = 1,
+                                           linetype = "solid"))
+# rename factors for better plot labels
+data$IsBorrowerHomeowner <- as.factor(data$IsBorrowerHomeowner)
+data$Delinquencies <- as.factor(data$Delinquencies)
+levels(data$IsBorrowerHomeowner) <- c('Homeowner: False', 'Homeowner: True')
+levels(data$Delinquencies) <- c('Delinquent: False', 'Delinquent: True')
+# figure part 2: homeowner and delinquent sub-plots
+g2 <- ggplot(data = data,
+             aes(y=BorrowerRate, x=CreditScoreAverage, color=LoanStatus)) +
+    scale_color_brewer(palette="Set1") +
+    theme_bw() +
+    geom_point(alpha=0.25, position = 'jitter') +
+    xlim(450,900) + ylim(0,0.38) +
+    facet_grid(Delinquencies~IsBorrowerHomeowner) +
+    ggtitle("") + xlab("Credit Score") + ylab("Borrower Rate") +
+    theme(legend.position="none")
+# combine figure parts 1 and 2
+grid.arrange(g1,g2)
+```
+
+```{r, include=FALSE}
+# correlation coefficent
+cor.test(data$CreditScoreAverage, data$BorrowerRate)
+# r squared value
+br_csa <- lm(BorrowerRate~CreditScoreAverage, data=data )
+summary(br_csa)
+```
+
+Figure 3: Credit Score, Borrower Rate, Loan Status, Homeownership, vs. Delinquent. Scatter-plots of credit score (x-axis), borrower rate (y-axis), and loan status (colors). This relationship was linear; borrower rate was negatively correlated with credit score (Pearson's correlation coefficient = -0.492, R-Squared = 0.238). Loan defaults (green) were associated with credit scores below 650, borrower rates above 0.2, delinquencies, and non-homeowners (sub-plots). Non-homeowners with prior delinquencies showed the greatest concentration of loan defaults. Conversely, homeowners with no prior delinquencies showed the lowest concentration of loan defaults. Overall, this figure highlighted high and low risk metrics for potential loan defaults.
+
+## Reflections
+
+In summary, this analysis investigated the Prosper dataset containing 82 variables/features and 113,937 loan observations from 2005 to 2014. The focus was the relationship between loan status (completed, current, defaulted, and late), credit score, and other financial variables, such as income. A series of univariate, bivariate, and multivariate plots were created to identify relationships among these variables.
+
+Challenges of this analysis included large number of potential variables/features to investigate and sparse/missing values. Initially, it was difficult to choose variables/features to investigate. This was overcome by reading articles about the credit industry to identify potentially important variables. In addition, other variables, such as occupation, were not utilized to simplify the analysis.
+
+The univariate and bivariate plots suggested the following: (1) credit score was positively correlated with monthly income, available credit, and Prosper rating, (2) credit score was negatively correlated with borrower rate, utilization rate, and delinquencies, and (3) loan defaults were associated with lower credit scores, lower Prosper ratings, higher borrower rates, delinquencies, and higher lender yields. The multivariate plots enabled a deeper understanding and suggested that loan defaults were associated with lower credit scores, shorter credit histories, higher utilization rates, higher lender yields, lower incomes, delinquencies, higher borrower rates, and non-homeowners.
+
+Next steps include building a loan status prediction model. This model could be utilized by Prosper and other financial companies to identify the best/worst candidates for loans. A supervised-learning classification model (i.e. Random Forest) would be a promising model to fit this data. Furthermore, the missing values in this dataset should be studied further and possibly imputed in order to improve this analysis.

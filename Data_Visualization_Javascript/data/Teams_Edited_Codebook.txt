@@ -1,0 +1,50 @@
+Teams_Edited.tsv Data Codebook  
+
+Note: Data modified from Sean Lahman Baseball Database, version 2015-01-24, Teams.csv
+
+Features: 
+
+yearID = season year, 1901-2015 “modern baseball era”
+
+franchID = franchise/team name, 30 current MLB teams, 3 letter abbreviations   
+"KCR" = Kansas City Royals
+"MIN" = Minneapolis Twins
+"CLE" = Cleveland Indians
+"CHW" = Chicago White Sox
+"DET" = Detroit Tigers
+"TOR” = Toronto Blue Rays
+"NYY” = New York Yankees
+"BAL" = Baltimore Oriels 
+"TBD" = Tampa Bay Rays
+"BOS" = Boston Red Sox
+"TEX" = Texas Rangers
+"HOU" = Houston Astros
+"ANA" = Los Angels Angels of Anaheim 
+"SEA" = Seattle Mariners
+"OAK" = Oakland Athletics 
+"STL" = St. Louis Cardinals 
+"PIT" = Pittsburgh Pirates
+"CHC" = Chicago Cubs
+"MIL" = Milwaukee Brewers 
+"CIN" = Cincinnati Reds
+"NYM" = New York Mets
+"WSN" = Washington Nationals
+"FLA" = Florida Marlins 
+"ATL" = Atlanta Braves
+"PHI” = Philadelphia Phillies
+"LAD" = Los Angeles Dodgers
+"SFG" = San Fransisco Giants
+"ARI" = Arizona Diamondbacks
+"SDP" = San Diego Padres
+"COL" = Colorado Rockies 
+
+WinPercent = winning percentage/ratio, Wins/(Wins+Losses), ranges from 0 to 1
+
+PostSeason = post-season results (world series champion, league champion, division 
+winner, wild card winner, and NA-not applicable) 
+
+
+
+
+
+
